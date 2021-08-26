@@ -1,0 +1,172 @@
+---
+- hosts: localhost
+  become: true
+  gather_facts: false
+  vars:
+    dotfiles: /home/jason/dotfiles
+    home_dir: /home/jason
+    home_user: jason
+    is_virtualbox: true
+
+  tasks:
+    - name: Installing core pacman packages
+      pacman:
+        name:
+          - base-devel
+          - screen
+          - git
+          - zsh
+          - i3-gaps
+          - zsh-syntax-highlighting
+          - tmux
+          - nmap
+          - htop
+          - tcpdump
+          - python-pip
+          - python-pexpect
+          - exa
+          - npm
+          - net-tools
+        state: present
+        update_cache: true
+      tags: install, packages, pacman
+
+    - name: Update sudoers
+      copy:
+        content: "jason ALL=(ALL) NOPASSWD: ALL"
+        dest: /etc/sudoers.d/jason
+      tags: sudo
+
+    - name: Clone yay
+      git:
+        repo: https://aur.archlinux.org/yay.git
+        dest: /opt/yay
+      tags: yay
+
+    - name: Prep yay
+      shell: chown -R jason:jason /opt/yay
+      tags: yay
+
+    - name: Install yay
+      command: makepkg --noconfirm -si
+      become: false
+      args:
+        chdir: /opt/yay
+      tags: yay
+
+    - name: Run yay
+      expect:
+        command: yay
+        timeout: 300
+        responses:
+          Y/n: Y
+      become: false
+      tags: yay
+
+    - name: Install AUR Packages
+      command: yay --noconfirm --needed -S {{ item }}
+      with_items:
+        - brave-bin
+        - zoom
+        - medusa
+        - oh-my-zsh-git
+      become_user: "{{ home_user }}"
+      tags: aur
+
+    - name: Make Directories
+      file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ home_user }}"
+        group: "{{ home_user }}"
+        mode: "0755"
+      with_items:
+        - { path: "{{ home_dir }}/.config" }
+        - { path: "{{ home_dir }}/.config/polybar" }
+        - { path: "{{ home_dir }}/.config/nvim" }
+        - { path: "{{ home_dir }}/.config/alacritty" }
+        - { path: "{{ home_dir }}/.config/rofi" }
+        - { path: "{{ home_dir }}/.config/dunst" }
+        - { path: "{{ home_dir }}/.config/i3" }
+        - { path: "{{ home_dir }}/.config/picom" }
+        - { path: "{{ home_dir }}/.local/share/nvim/backup" }
+      tags: dotfiles, folders
+
+    - name: Link dotfiles
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: "{{ home_user }}"
+        group: "{{ home_user }}"
+        mode: "0644"
+        force: true
+        state: link
+      with_items:
+        - { src: "{{ dotfiles }}/tmux/tmux.conf", dest: "{{ home_dir }}/.tmux.conf" }
+        - { src: "{{ dotfiles }}/zsh/zshrc", dest: "{{ home_dir}}/.zshrc" }
+        - { src: "{{ dotfiles }}/nvim/init.vim", dest: "{{ home_dir}}/.config/nvim/init.vim" }
+        - { src: "{{ dotfiles }}/i3/config", dest: "{{ home_dir}}/.config/i3/config" }
+        - { src: "{{ dotfiles }}/oh-my-zsh/pi.zsh-theme", dest: "/usr/share/oh-my-zsh/themes/pi.zsh-theme" }
+        - { src: "{{ dotfiles }}/aliases/bash_aliases", dest: "{{ home_dir}}/.bash_aliases" }
+        - { src: "{{ dotfiles }}/alacritty/alacritty.yml", dest: "{{ home_dir}}/.config/alacritty/alacritty.yml" }
+        - { src: "{{ dotfiles }}/polybar/config", dest: "{{ home_dir}}/.config/polybar/config" }
+        - { src: "{{ dotfiles }}/dunst/dunstrc", dest: "{{ home_dir}}/.config/dunst/dunstrc" }
+        - { src: "{{ dotfiles }}/rofi/dracula.rasi", dest: "{{ home_dir}}/.config/rofi" }
+      tags: dotfiles, symlinks
+
+    - name: Set zsh as default shell
+      user:
+        name: "{{ home_user }}"
+        shell: /bin/zsh
+      tags: zsh
+
+    - name: Check for Vim-Plug
+      stat:
+        path: "{{ home_dir }}/.local/share/nvim/site/autoload/plug.vim"
+      register: plug_exists
+      become_user: "{{ home_user }}"
+      tags: vim, install
+
+    - name: Install Vim-Plug
+      shell: sh -c 'curl -fLo "${XDG_DATA_HOME:-$HOME/.local/share}"/nvim/site/autoload/plug.vim --create-dirs https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim'
+      become_user: "{{ home_user }}"
+      when: plug_exists.stat.exists == false
+      tags: vim, install
+
+    - name: Install Vim Plugins
+      command: nvim --headless -E -s -c "source {{ home_dir }}/.config/nvim/init.vim" +PlugInstall +qa
+      become_user: "{{ home_user }}"
+      ignore_errors: true
+      tags: vim, install
+
+    - name: Install pyright LSP
+      command: npm i -g pyright
+      tags: vim, install, lsp
+
+    - name: Pip install dependencies
+      command: pip3 install debugpy
+      tags: vim, install, pip
+
+    - name: Installing VirtualBox tools
+      pacman:
+        name: virtualbox-guest-utils
+        state: present
+      tags: virtualbox
+      when: is_virtualbox
+
+    - name: Enabling VirtualBox service
+      systemd:
+        name: vboxservice.service
+        enabled: yes
+      tags: virtualbox
+      when: is_virtualbox
+
+
+
+
+
+
+
+
+
+
